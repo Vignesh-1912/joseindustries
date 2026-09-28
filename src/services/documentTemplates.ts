@@ -42,9 +42,13 @@ export const TEMPLATE_STYLE_DOC_TYPES: Record<TemplateStyle, readonly TemplateDo
   classic_gst: ["quotation", "proforma_invoice", "delivery_challan", "tax_invoice"],
   modern: TEMPLATE_DOC_TYPES,
   classic_quotation: ["quotation"],
-  // The client's measured (Height x Length = Sq.Ft) invoice sheet - offered
-  // on the two invoice types.
-  classic_measured: ["proforma_invoice", "tax_invoice"],
+  // The client's measured (Height x Length = Sq.Ft) sheet - room/group
+  // headings with un-numbered measured sub-lines under them (e.g. "Room 1"
+  // followed by Wardrobe Frame, Loft Frame Covering, ...). Offered on the two
+  // invoice types and on Quotation - a quotation for this kind of made-to-
+  // measure furniture job is built the exact same way, before any invoice
+  // exists yet.
+  classic_measured: ["quotation", "proforma_invoice", "tax_invoice"],
 };
 
 export function stylesForDocType(docType: TemplateDocType): TemplateStyle[] {
