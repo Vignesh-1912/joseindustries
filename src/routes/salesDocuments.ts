@@ -378,7 +378,7 @@ export function createSalesDocumentRouter(
       const installationCharges = Number(installation_charges) || 0;
       const { subtotal, discountAmount, freightCharges: freight, installationCharges: installation, roundOff, grandTotal } =
         computeTotals(lines, { freightCharges, installationCharges });
-      const { isInterState, cgstTotal, sgstTotal, igstTotal } = computeGstSplit(lines, company.state, customer.state);
+      const { isInterState, cgstTotal, sgstTotal, igstTotal } = computeGstSplit(lines, company.state, customer.state, company.gstin, customer.gstin);
       const taxTotal = isInterState ? igstTotal : cgstTotal + sgstTotal;
       const optionalFields = pickOptionalTextFields(req.body ?? {});
 
@@ -631,7 +631,7 @@ export function createSalesDocumentRouter(
       const installationCharges = Number(installation_charges) || 0;
       const { subtotal, discountAmount, freightCharges: freight, installationCharges: installation, roundOff, grandTotal } =
         computeTotals(lines, { freightCharges, installationCharges });
-      const { isInterState, cgstTotal, sgstTotal, igstTotal } = computeGstSplit(lines, company.state, customer.state);
+      const { isInterState, cgstTotal, sgstTotal, igstTotal } = computeGstSplit(lines, company.state, customer.state, company.gstin, customer.gstin);
       const taxTotal = isInterState ? igstTotal : cgstTotal + sgstTotal;
       const optionalFields = pickOptionalTextFields(req.body ?? {});
 

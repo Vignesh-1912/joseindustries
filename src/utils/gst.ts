@@ -29,13 +29,35 @@ function normalizeState(state: string): string {
   return state.replace(/\s+/g, "").toLowerCase();
 }
 
+/** A GSTIN's first two characters are the GST state code it was registered
+ * under - fixed at registration, never mistyped or left blank the way a
+ * free-text `state` field can be. */
+function stateCodeFromGstin(gstin: string | null | undefined): string | null {
+  const code = gstin?.trim().slice(0, 2);
+  return code && /^\d{2}$/.test(code) ? code : null;
+}
+
 export function computeGstSplit(
   lines: GstLine[],
   companyState: string | null,
-  customerState: string | null
+  customerState: string | null,
+  companyGstin?: string | null,
+  customerGstin?: string | null
 ): GstSplit {
+  // Both parties are always meant to be on the same footing here: every
+  // company this app issues documents for is GST-registered, so it always
+  // has a GSTIN. A B2B customer usually does too. When both GSTINs are on
+  // record, their state codes settle inter-state vs intra-state outright -
+  // this is what actually decides GST, and it can never be blank or
+  // misspelled the way the free-text `state` field can. Only an
+  // unregistered/consumer customer (no GSTIN) falls back to comparing the
+  // free-text state names.
+  const companyCode = stateCodeFromGstin(companyGstin);
+  const customerCode = stateCodeFromGstin(customerGstin);
   const isInterState =
-    !!companyState && !!customerState && normalizeState(companyState) !== normalizeState(customerState);
+    companyCode && customerCode
+      ? companyCode !== customerCode
+      : !!companyState && !!customerState && normalizeState(companyState) !== normalizeState(customerState);
 
   let taxTotal = 0;
   for (const line of lines) {

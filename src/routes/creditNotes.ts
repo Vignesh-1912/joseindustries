@@ -253,7 +253,7 @@ creditNotesRouter.post(
       }
 
       const { subtotal, grandTotal } = computeTotals(lines);
-      const { isInterState, cgstTotal, sgstTotal, igstTotal } = computeGstSplit(lines, company.state, customer.state);
+      const { isInterState, cgstTotal, sgstTotal, igstTotal } = computeGstSplit(lines, company.state, customer.state, company.gstin, customer.gstin);
       const taxTotal = isInterState ? igstTotal : cgstTotal + sgstTotal;
 
       const { docNumber, financialYear } = await getNextDocNumber("credit_note", company.code, new Date(issue_date), invoice.gst_type === "non_gst" ? "non_gst" : "gst");
