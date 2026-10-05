@@ -1032,33 +1032,33 @@ export function createSalesDocumentRouter(
         }
       };
 
-      // Invoices print as one two-copy PDF (so a single print job gives both
-      // sheets): identical layouts, only the header label differs. ?copies=1
-      // gives the single sheet.
-      if (docType === "tax_invoice" && req.query.copies !== "1") {
-        const labels = ["Original for Recipient", "Duplicate for Transporter"];
+      if (docType === "tax_invoice" && req.query.copies === "2") {
         const merged = await PDFLibDocument.create();
-        for (const label of labels) {
+        for (const label of ["Original for Recipient", "Duplicate for Transporter"]) {
           const chunks: Buffer[] = [];
           const sink = new PassThrough();
-          sink.on("data", (c: Buffer) => chunks.push(c));
+          sink.on("data", (chunk: Buffer) => chunks.push(chunk));
           const finished = new Promise<void>((resolve, reject) => {
-            sink.on("end", () => resolve());
+            sink.on("end", resolve);
             sink.on("error", reject);
           });
           Object.assign(sink, { setHeader: () => undefined });
           render(sink as unknown as Response, { ...template, headerLabel: label });
           await finished;
-          const part = await PDFLibDocument.load(Buffer.concat(chunks));
-          const pages = await merged.copyPages(part, part.getPageIndices());
-          pages.forEach((pg) => merged.addPage(pg));
+          const copy = await PDFLibDocument.load(Buffer.concat(chunks));
+          const pages = await merged.copyPages(copy, copy.getPageIndices());
+          pages.forEach((page) => merged.addPage(page));
         }
         res.setHeader("Content-Type", "application/pdf");
         res.setHeader("Content-Disposition", `inline; filename="${doc.doc_number.replace(/\//g, "-")}.pdf"`);
         res.end(Buffer.from(await merged.save()));
         return;
       }
-      render(res, template);
+
+      render(
+        res,
+        docType === "tax_invoice" ? { ...template, headerLabel: "Original for Recipient" } : template
+      );
     })
   );
 
