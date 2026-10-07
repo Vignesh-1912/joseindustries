@@ -22,7 +22,7 @@ import {
   Switch,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { PlusOutlined, EditOutlined, DeleteOutlined, FilePdfOutlined, SwapOutlined } from "@ant-design/icons";
+import { PlusOutlined, EditOutlined, DeleteOutlined, FilePdfOutlined, PrinterOutlined, SwapOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { api, ApiError } from "../api/client";
 import { useAuth } from "../context/AuthContext";
@@ -537,6 +537,10 @@ export function SalesDocumentPage({
     window.open(`/api${apiPath}/${record.id}/pdf`, "_blank");
   }
 
+  function downloadTaxInvoiceCopies(record: SalesDocument) {
+    window.open(`/api${apiPath}/${record.id}/pdf?copies=2`, "_blank");
+  }
+
   const columns: ColumnsType<SalesDocument> = [
     { title: "No.", dataIndex: "doc_number", key: "doc_number" },
     { title: "Company", dataIndex: "company_code", key: "company_code", width: 90 },
@@ -702,6 +706,19 @@ export function SalesDocumentPage({
         confirmLoading={saving}
         width={820}
         destroyOnClose
+        footer={
+          editingDoc && docType === "tax_invoice" ? (
+            <Space>
+              <Button onClick={() => setModalOpen(false)}>Cancel</Button>
+              <Button icon={<PrinterOutlined />} onClick={() => downloadTaxInvoiceCopies(editingDoc)}>
+                Print
+              </Button>
+              <Button type="primary" loading={saving} onClick={handleSubmit}>
+                Save changes
+              </Button>
+            </Space>
+          ) : undefined
+        }
       >
         <Form form={form} layout="vertical" size="middle">
           {canCreateCustomer || can("contacts.customers", "view") ? (

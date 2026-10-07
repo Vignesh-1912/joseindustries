@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { pool } from "../config/db";
 import { requireAuth } from "../middleware/auth";
-import { requireModuleAccess } from "../utils/permissions";
+import { requireModuleAccess, getModuleAccess } from "../utils/permissions";
+import { GSTIN_PATTERN, GstinLookupError, fetchGstinDetails, normalizeGstin } from "../services/gstinLookup";
 import { asyncHandler } from "../utils/asyncHandler";
 import { Vendor } from "../types";
 
@@ -37,6 +38,41 @@ vendorsRouter.get(
     );
 
     res.json({ data: rows as Vendor[], meta: { page, perPage, total: countRows[0].total as number } });
+  })
+);
+
+// Find a vendor by GSTIN - same flow as customers: our own database first, the
+// paid GSTIN API only for a GSTIN we have never seen, and the result is saved
+// straight away. Registered before "/:id".
+vendorsRouter.get(
+  "/lookup-gstin/:gstin",
+  requireModuleAccess(MODULE, "view"),
+  asyncHandler(async (req, res) => {
+    const gstin = normalizeGstin(String(req.params.gstin));
+    if (!GSTIN_PATTERN.test(gstin)) {
+      return res.status(400).json({ message: "That is not a valid 15-character GSTIN" });
+    }
+
+    const [rows] = await pool.query<any[]>("SELECT * FROM vendors WHERE gstin = ? ORDER BY id ASC LIMIT 1", [gstin]);
+    if (rows[0]) return res.json({ source: "database", vendor: rows[0] as Vendor });
+
+    const access = await getModuleAccess(req.user!.sub, req.user!.role, MODULE);
+    if (!access.can_create) {
+      return res.status(403).json({ message: "This GSTIN is not in your vendors yet, and you do not have permission to add vendors" });
+    }
+
+    try {
+      const details = await fetchGstinDetails(gstin);
+      const [result] = await pool.query<any>(
+        `INSERT INTO vendors (name, gstin, address, state) VALUES (?, ?, ?, ?)`,
+        [details.name, gstin, details.billing_address, details.state]
+      );
+      const created = await findVendorById(result.insertId);
+      res.status(201).json({ source: "gstin_api", vendor: created, gstStatus: details.gstStatus });
+    } catch (err) {
+      if (err instanceof GstinLookupError) return res.status(err.status).json({ message: err.message });
+      throw err;
+    }
   })
 );
 

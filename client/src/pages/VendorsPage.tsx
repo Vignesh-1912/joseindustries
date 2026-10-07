@@ -5,6 +5,7 @@ import { PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
 import { api } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { Vendor } from "../types";
+import { VendorGstinLookup } from "../components/GstinLookup";
 
 const PAGE_SIZE = 10;
 
@@ -153,6 +154,21 @@ export function VendorsPage() {
         confirmLoading={saving}
         destroyOnClose
       >
+        {!editing && (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ marginBottom: 4 }}>Find by GSTIN</div>
+            <VendorGstinLookup
+              onResult={(r) => {
+                setModalOpen(false);
+                load();
+                if (r.source === "database") message.info("This vendor is already in your list");
+              }}
+            />
+            <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>
+              Fetches the details from the GST portal and adds the vendor (an existing GSTIN is not added twice). Or fill in the details below.
+            </div>
+          </div>
+        )}
         <Form form={form} layout="vertical" size="middle">
           <Form.Item name="name" label="Name" rules={[{ required: true, message: "Name is required" }]}>
             <Input />
