@@ -127,6 +127,13 @@ Phase 3 adds **Tax Invoice** and **Receipts**:
   Invoice (not only through the full chain) - but that specific convert option only appears
   for Admin/Super Admin, since the target endpoint would otherwise reject it.
 
+## GST Returns
+
+The Reports → GST Returns page prepares GSTR-1 and GSTR-3B for the selected company and date
+range. Each return can be exported as a multi-sheet Excel workbook or a printable PDF. These
+are internal preparation reports only; review the figures and file them on the government
+portal yourself.
+
 ## Local development
 
 Requirements: Node.js 18+, a **MariaDB** server reachable from your machine (local, or a remote

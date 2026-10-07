@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Tabs, Select, DatePicker, Table, Typography, Space, message, Statistic, Row, Col, Card, Tag, Alert } from "antd";
+import { Tabs, Select, DatePicker, Table, Typography, Space, message, Statistic, Row, Col, Card, Tag, Alert, Button } from "antd";
+import { FileExcelOutlined, FilePdfOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import dayjs, { Dayjs } from "dayjs";
 import { api } from "../api/client";
@@ -16,6 +17,16 @@ const { RangePicker } = DatePicker;
 
 function formatMoney(n: number): string {
   return n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function exportUrl(returnType: "gstr1" | "gstr3b", format: "excel" | "pdf", companyId: number | undefined, range: [Dayjs, Dayjs]) {
+  if (!companyId) return null;
+  const params = new URLSearchParams({
+    company_id: String(companyId),
+    from: range[0].format("YYYY-MM-DD"),
+    to: range[1].format("YYYY-MM-DD"),
+  });
+  return `/api/accounting/gst-returns/${returnType}/${format}?${params.toString()}`;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -103,6 +114,26 @@ function Gstr1Tab({ companies }: { companies: Company[] }) {
           onChange={setCompanyId}
         />
         <RangePicker value={range} format="DD MMM YYYY" onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])} allowClear={false} />
+        <Button
+          icon={<FileExcelOutlined />}
+          disabled={!companyId || loading}
+          onClick={() => {
+            const url = exportUrl("gstr1", "excel", companyId, range);
+            if (url) window.open(url, "_blank");
+          }}
+        >
+          Excel
+        </Button>
+        <Button
+          icon={<FilePdfOutlined />}
+          disabled={!companyId || loading}
+          onClick={() => {
+            const url = exportUrl("gstr1", "pdf", companyId, range);
+            if (url) window.open(url, "_blank");
+          }}
+        >
+          PDF
+        </Button>
       </Space>
 
       {data && (
@@ -307,6 +338,26 @@ function Gstr3bTab({ companies }: { companies: Company[] }) {
           onChange={setCompanyId}
         />
         <RangePicker value={range} format="DD MMM YYYY" onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])} allowClear={false} />
+        <Button
+          icon={<FileExcelOutlined />}
+          disabled={!companyId || loading}
+          onClick={() => {
+            const url = exportUrl("gstr3b", "excel", companyId, range);
+            if (url) window.open(url, "_blank");
+          }}
+        >
+          Excel
+        </Button>
+        <Button
+          icon={<FilePdfOutlined />}
+          disabled={!companyId || loading}
+          onClick={() => {
+            const url = exportUrl("gstr3b", "pdf", companyId, range);
+            if (url) window.open(url, "_blank");
+          }}
+        >
+          PDF
+        </Button>
       </Space>
 
       {data && (
