@@ -22,6 +22,8 @@ import dayjs from "dayjs";
 import { api } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { RemoteSelect } from "../components/RemoteSelect";
+import { VendorGstinLookup } from "../components/GstinLookup";
+import { QuickAddVendorModal } from "../components/QuickAddVendorModal";
 import {
   Company,
   Item,
@@ -75,6 +77,7 @@ export function PurchaseBillsPage() {
 
   const [companies, setCompanies] = useState<Company[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [quickAddVendorOpen, setQuickAddVendorOpen] = useState(false);
   const [items, setItems] = useState<Item[]>([]);
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -425,6 +428,20 @@ export function PurchaseBillsPage() {
             />
           )}
 
+          {!convertingFromPO && (can("contacts.vendors", "create") || can("contacts.vendors", "view")) ? (
+            <Form.Item
+              label="Find vendor by GSTIN"
+              extra="An existing vendor is selected straight from your database; a GSTIN we don't have yet is fetched from the GST portal, added to your vendors and selected."
+            >
+              <VendorGstinLookup
+                onResult={(r) => {
+                  setVendors((prev) => [r.vendor, ...prev.filter((v) => v.id !== r.vendor.id)]);
+                  form.setFieldsValue({ vendor_id: r.vendor.id });
+                }}
+              />
+            </Form.Item>
+          ) : null}
+
           <Space.Compact style={{ width: "100%", marginBottom: 16 }}>
             <Form.Item
               name="company_id"
@@ -448,20 +465,26 @@ export function PurchaseBillsPage() {
                 }}
               />
             </Form.Item>
-            <Form.Item
-              name="vendor_id"
-              label="Vendor"
-              rules={[{ required: true, message: "Vendor is required" }]}
-              style={{ width: "36%", marginBottom: 0 }}
-            >
-              <RemoteSelect<Vendor>
-                searchPath="/vendors"
-                mapOption={(v) => ({ value: v.id, label: v.name })}
-                extraOptions={vendors.map((v) => ({ value: v.id, label: v.name }))}
-                placeholder="Select vendor"
-                style={{ width: "100%" }}
-                disabled={!!convertingFromPO}
-              />
+            <Form.Item label="Vendor" required style={{ width: "36%", marginBottom: 0 }}>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Form.Item
+                  name="vendor_id"
+                  rules={[{ required: true, message: "Vendor is required" }]}
+                  style={{ flex: 1, marginBottom: 0 }}
+                >
+                  <RemoteSelect<Vendor>
+                    searchPath="/vendors"
+                    mapOption={(v) => ({ value: v.id, label: v.name })}
+                    extraOptions={vendors.map((v) => ({ value: v.id, label: v.name }))}
+                    placeholder="Select vendor"
+                    style={{ width: "100%" }}
+                    disabled={!!convertingFromPO}
+                  />
+                </Form.Item>
+                {can("contacts.vendors", "create") && !convertingFromPO && (
+                  <Button icon={<PlusOutlined />} onClick={() => setQuickAddVendorOpen(true)} title="Add new vendor" />
+                )}
+              </div>
             </Form.Item>
             <Form.Item name="status" label="Status" style={{ width: "30%", marginBottom: 0 }}>
               <Select
@@ -605,6 +628,16 @@ export function PurchaseBillsPage() {
           </div>
         </Form>
       </Modal>
+
+      <QuickAddVendorModal
+        open={quickAddVendorOpen}
+        onClose={() => setQuickAddVendorOpen(false)}
+        onCreated={(vendor) => {
+          setVendors((prev) => [vendor, ...prev.filter((v) => v.id !== vendor.id)]);
+          form.setFieldsValue({ vendor_id: vendor.id });
+          setQuickAddVendorOpen(false);
+        }}
+      />
     </div>
   );
 }
