@@ -265,6 +265,19 @@ export function createSalesDocumentRouter(
       const companyId = req.query.company_id ? Number(req.query.company_id) : null;
       const offset = (page - 1) * perPage;
 
+      const startDate = typeof req.query.start_date === "string" ? req.query.start_date : "";
+      const endDate = typeof req.query.end_date === "string" ? req.query.end_date : "";
+      const isValidDate = (value: string) =>
+        /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+        !Number.isNaN(Date.parse(value)) &&
+        new Date(`${value}T00:00:00.000Z`).toISOString().slice(0, 10) === value;
+      if (
+        Boolean(startDate) !== Boolean(endDate) ||
+        (startDate && (!isValidDate(startDate) || !isValidDate(endDate) || startDate > endDate))
+      ) {
+        return res.status(400).json({ message: "Provide a valid start_date and end_date range" });
+      }
+
       const searchClause = search ? "AND (d.doc_number LIKE ? OR c.name LIKE ?)" : "";
       const searchParams = search ? [`%${search}%`, `%${search}%`] : [];
       const companyClause = companyId ? "AND d.company_id = ?" : "";
@@ -272,23 +285,25 @@ export function createSalesDocumentRouter(
       const gstFilter = req.query.gst_type === "gst" || req.query.gst_type === "non_gst" ? String(req.query.gst_type) : null;
       const gstClause = gstFilter ? "AND d.gst_type = ?" : "";
       const gstParams = gstFilter ? [gstFilter] : [];
+      const dateClause = startDate ? "AND d.issue_date BETWEEN ? AND ?" : "";
+      const dateParams = startDate ? [startDate, endDate] : [];
 
       const [rows] = await pool.query<any[]>(
         `SELECT d.*, c.name as customer_name, co.name as company_name, co.code as company_code${paymentSelect}
          FROM documents d
          JOIN customers c ON c.id = d.customer_id
          JOIN companies co ON co.id = d.company_id
-         WHERE d.doc_type = ? ${searchClause} ${companyClause} ${gstClause}
+         WHERE d.doc_type = ? ${searchClause} ${companyClause} ${gstClause} ${dateClause}
          ORDER BY d.issue_date DESC, d.id DESC
          LIMIT ? OFFSET ?`,
-        [docType, ...searchParams, ...companyParams, ...gstParams, perPage, offset]
+        [docType, ...searchParams, ...companyParams, ...gstParams, ...dateParams, perPage, offset]
       );
       const [countRows] = await pool.query<any[]>(
         `SELECT COUNT(*) as total
          FROM documents d
          JOIN customers c ON c.id = d.customer_id
-         WHERE d.doc_type = ? ${searchClause} ${companyClause} ${gstClause}`,
-        [docType, ...searchParams, ...companyParams, ...gstParams]
+         WHERE d.doc_type = ? ${searchClause} ${companyClause} ${gstClause} ${dateClause}`,
+        [docType, ...searchParams, ...companyParams, ...gstParams, ...dateParams]
       );
 
       res.json({ data: rows, meta: { page, perPage, total: countRows[0].total as number } });

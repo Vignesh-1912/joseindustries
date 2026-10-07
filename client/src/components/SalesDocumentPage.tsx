@@ -20,10 +20,11 @@ import {
   Tag,
   Dropdown,
   Switch,
+  Popover,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { PlusOutlined, EditOutlined, DeleteOutlined, FilePdfOutlined, PrinterOutlined, SwapOutlined } from "@ant-design/icons";
-import dayjs from "dayjs";
+import { CalendarOutlined, PlusOutlined, EditOutlined, DeleteOutlined, FilePdfOutlined, PrinterOutlined, SwapOutlined } from "@ant-design/icons";
+import dayjs, { Dayjs } from "dayjs";
 import { api, ApiError } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { QuickAddCustomerModal } from "./QuickAddCustomerModal";
@@ -151,6 +152,9 @@ export function SalesDocumentPage({
   const [search, setSearch] = useState("");
   const [companyFilter, setCompanyFilter] = useState<number | undefined>();
   const [gstFilter, setGstFilter] = useState<GstType | undefined>();
+  const [dateRange, setDateRange] = useState<[Dayjs, Dayjs] | null>(null);
+  const [draftDateRange, setDraftDateRange] = useState<[Dayjs, Dayjs] | null>(null);
+  const [dateFilterOpen, setDateFilterOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -189,9 +193,19 @@ export function SalesDocumentPage({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const companyParam = (companyFilter ? `&company_id=${companyFilter}` : "") + (gstFilter ? `&gst_type=${gstFilter}` : "");
+      const params = new URLSearchParams({
+        page: String(page),
+        perPage: String(PAGE_SIZE),
+        search,
+      });
+      if (companyFilter) params.set("company_id", String(companyFilter));
+      if (gstFilter) params.set("gst_type", gstFilter);
+      if (dateRange) {
+        params.set("start_date", dateRange[0].format("YYYY-MM-DD"));
+        params.set("end_date", dateRange[1].format("YYYY-MM-DD"));
+      }
       const res = await api.get<{ data: SalesDocument[]; meta: { total: number } }>(
-        `${apiPath}?page=${page}&perPage=${PAGE_SIZE}&search=${encodeURIComponent(search)}${companyParam}`
+        `${apiPath}?${params.toString()}`
       );
       setRows(res.data);
       setTotal(res.meta.total);
@@ -200,7 +214,7 @@ export function SalesDocumentPage({
     } finally {
       setLoading(false);
     }
-  }, [apiPath, page, search, companyFilter, gstFilter, pluralTitle]);
+  }, [apiPath, page, search, companyFilter, gstFilter, dateRange, pluralTitle]);
 
   useEffect(() => {
     load();
@@ -649,6 +663,55 @@ export function SalesDocumentPage({
           {pluralTitle}
         </Typography.Title>
         <Space wrap>
+          {docType === "tax_invoice" && (
+            <Popover
+              trigger="click"
+              open={dateFilterOpen}
+              onOpenChange={(open) => {
+                setDateFilterOpen(open);
+                if (open) setDraftDateRange(dateRange);
+              }}
+              content={
+                <Space direction="vertical">
+                  <DatePicker.RangePicker
+                    value={draftDateRange}
+                    format="DD MMM YYYY"
+                    onChange={(value) => setDraftDateRange(value?.[0] && value[1] ? [value[0], value[1]] : null)}
+                    allowClear
+                  />
+                  <Space style={{ justifyContent: "flex-end", width: "100%" }}>
+                    <Button
+                      onClick={() => {
+                        setDateRange(null);
+                        setDraftDateRange(null);
+                        setPage(1);
+                        setDateFilterOpen(false);
+                      }}
+                    >
+                      Clear
+                    </Button>
+                    <Button
+                      type="primary"
+                      disabled={!draftDateRange}
+                      onClick={() => {
+                        setDateRange(draftDateRange);
+                        setPage(1);
+                        setDateFilterOpen(false);
+                      }}
+                    >
+                      Apply
+                    </Button>
+                  </Space>
+                </Space>
+              }
+            >
+              <Button type={dateRange ? "primary" : "default"} icon={<CalendarOutlined />}>
+                {dateRange
+                  ? `${dateRange[0].format("DD MMM YYYY")} - ${dateRange[1].format("DD MMM YYYY")}`
+                  : "Date filter"}
+              </Button>
+            </Popover>
+          )}
           <Select
             placeholder="All Companies"
             allowClear
