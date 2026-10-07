@@ -5,7 +5,7 @@ import { requireModuleAccess } from "../utils/permissions";
 import { asyncHandler } from "../utils/asyncHandler";
 import { getNextDocNumber } from "../services/numbering";
 import { computeLine, LineInput } from "../utils/totals";
-import { Company, PurchaseOrder, PurchaseOrderItem, Vendor } from "../types";
+import { GstType, parseGstType, Company, PurchaseOrder, PurchaseOrderItem, Vendor } from "../types";
 
 // Purchase Orders (Phase 7B) - a commitment/order document, NOT an
 // accounting liability. This file deliberately imports NOTHING from
@@ -55,14 +55,14 @@ class ValidationError extends Error {
   status = 400;
 }
 
-function validateAndNormalizeLines(rawItems: unknown): NormalizedLine[] {
+function validateAndNormalizeLines(rawItems: unknown, gstType: GstType = "gst"): NormalizedLine[] {
   if (!Array.isArray(rawItems) || rawItems.length === 0) {
     throw new ValidationError("At least one line item is required");
   }
   return rawItems.map((raw) => {
     const qty = Number(raw.qty);
     const rate = Number(raw.rate);
-    const tax_rate = Number(raw.tax_rate ?? 0);
+    const tax_rate = gstType === "non_gst" ? 0 : Number(raw.tax_rate ?? 0);
     if (!raw.description || !Number.isFinite(qty) || qty <= 0 || !Number.isFinite(rate) || rate < 0) {
       throw new ValidationError("Each line item needs a description, positive qty, and rate");
     }
@@ -98,7 +98,7 @@ async function validatePayload(body: any) {
 
   let lines: NormalizedLine[];
   try {
-    lines = validateAndNormalizeLines(items);
+    lines = validateAndNormalizeLines(items, parseGstType(body?.gst_type));
   } catch (err) {
     if (err instanceof ValidationError) return { error: err.message };
     throw err;
@@ -131,8 +131,32 @@ purchaseOrdersRouter.get(
     const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
     const offset = (page - 1) * perPage;
 
-    const searchClause = search ? "AND (po.po_no LIKE ? OR v.name LIKE ?)" : "";
-    const searchParams = search ? [`%${search}%`, `%${search}%`] : [];
+    const clauses: string[] = [];
+    const filterParams: (string | number)[] = [];
+    if (search) {
+      clauses.push("(po.po_no LIKE ? OR v.name LIKE ?)");
+      filterParams.push(`%${search}%`, `%${search}%`);
+    }
+    const companyId = Number(req.query.company_id);
+    if (companyId) {
+      clauses.push("po.company_id = ?");
+      filterParams.push(companyId);
+    }
+    if (req.query.gst_type === "gst" || req.query.gst_type === "non_gst") {
+      clauses.push("po.gst_type = ?");
+      filterParams.push(String(req.query.gst_type));
+    }
+    const startDate = typeof req.query.start_date === "string" ? req.query.start_date : "";
+    const endDate = typeof req.query.end_date === "string" ? req.query.end_date : "";
+    if (startDate || endDate) {
+      const isoDate = /^\d{4}-\d{2}-\d{2}$/;
+      if (!isoDate.test(startDate) || !isoDate.test(endDate) || startDate > endDate) {
+        return res.status(400).json({ message: "Provide a valid start_date and end_date range" });
+      }
+      clauses.push("po.po_date BETWEEN ? AND ?");
+      filterParams.push(startDate, endDate);
+    }
+    const whereClause = clauses.length ? `AND ${clauses.join(" AND ")}` : "";
 
     const [rows] = await pool.query<any[]>(
       `SELECT po.*, v.name as vendor_name, co.name as company_name, co.code as company_code${BILLED_SELECT}
@@ -140,14 +164,14 @@ purchaseOrdersRouter.get(
        JOIN vendors v ON v.id = po.vendor_id
        JOIN companies co ON co.id = po.company_id
        ${BILLED_JOIN}
-       WHERE 1=1 ${searchClause}
+       WHERE 1=1 ${whereClause}
        ORDER BY po.created_at DESC
        LIMIT ? OFFSET ?`,
-      [...searchParams, perPage, offset]
+      [...filterParams, perPage, offset]
     );
     const [countRows] = await pool.query<any[]>(
-      `SELECT COUNT(*) as total FROM purchase_orders po JOIN vendors v ON v.id = po.vendor_id WHERE 1=1 ${searchClause}`,
-      searchParams
+      `SELECT COUNT(*) as total FROM purchase_orders po JOIN vendors v ON v.id = po.vendor_id WHERE 1=1 ${whereClause}`,
+      filterParams
     );
 
     res.json({ data: rows, meta: { page, perPage, total: countRows[0].total as number } });
@@ -175,8 +199,9 @@ purchaseOrdersRouter.post(
 
     const { vendor_id, po_date, expected_date, reference_no, notes } = req.body ?? {};
     const { computedLines, subtotal, taxAmount, totalAmount } = computeTotalsFromLines(lines);
+    const gstType = parseGstType(req.body?.gst_type);
 
-    const { docNumber, financialYear } = await getNextDocNumber("purchase_order", company!.code, new Date(po_date));
+    const { docNumber, financialYear } = await getNextDocNumber("purchase_order", company!.code, new Date(po_date), gstType);
 
     const conn = await pool.getConnection();
     try {
@@ -185,8 +210,8 @@ purchaseOrdersRouter.post(
       const [insertResult] = await conn.query<any>(
         `INSERT INTO purchase_orders
            (po_no, financial_year, company_id, vendor_id, status, po_date, expected_date,
-            reference_no, notes, subtotal, tax_amount, total_amount, created_by)
-         VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?)`,
+            reference_no, notes, subtotal, tax_amount, total_amount, created_by, gst_type)
+         VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           docNumber,
           financialYear,
@@ -200,6 +225,7 @@ purchaseOrdersRouter.post(
           taxAmount,
           totalAmount,
           req.user!.sub,
+          gstType,
         ]
       );
       const orderId = insertResult.insertId;
@@ -280,7 +306,7 @@ purchaseOrdersRouter.put(
       await conn.query(
         `UPDATE purchase_orders SET
            company_id = ?, vendor_id = ?, status = ?, po_date = ?, expected_date = ?,
-           reference_no = ?, notes = ?, subtotal = ?, tax_amount = ?, total_amount = ?
+           reference_no = ?, notes = ?, subtotal = ?, tax_amount = ?, total_amount = ?, gst_type = ?
          WHERE id = ?`,
         [
           req.body.company_id,
@@ -293,6 +319,7 @@ purchaseOrdersRouter.put(
           subtotal,
           taxAmount,
           totalAmount,
+          parseGstType(req.body?.gst_type),
           id,
         ]
       );

@@ -27,8 +27,32 @@ vendorPaymentsRouter.get(
     const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
     const offset = (page - 1) * perPage;
 
-    const searchClause = search ? "AND (p.payment_no LIKE ? OR v.name LIKE ?)" : "";
-    const searchParams = search ? [`%${search}%`, `%${search}%`] : [];
+    const clauses: string[] = [];
+    const filterParams: (string | number)[] = [];
+    if (search) {
+      clauses.push("(p.payment_no LIKE ? OR v.name LIKE ?)");
+      filterParams.push(`%${search}%`, `%${search}%`);
+    }
+    const companyId = Number(req.query.company_id);
+    if (companyId) {
+      clauses.push("p.company_id = ?");
+      filterParams.push(companyId);
+    }
+    if (req.query.gst_type === "gst" || req.query.gst_type === "non_gst") {
+      clauses.push("p.gst_type = ?");
+      filterParams.push(String(req.query.gst_type));
+    }
+    const startDate = typeof req.query.start_date === "string" ? req.query.start_date : "";
+    const endDate = typeof req.query.end_date === "string" ? req.query.end_date : "";
+    if (startDate || endDate) {
+      const isoDate = /^\d{4}-\d{2}-\d{2}$/;
+      if (!isoDate.test(startDate) || !isoDate.test(endDate) || startDate > endDate) {
+        return res.status(400).json({ message: "Provide a valid start_date and end_date range" });
+      }
+      clauses.push("p.paid_date BETWEEN ? AND ?");
+      filterParams.push(startDate, endDate);
+    }
+    const whereClause = clauses.length ? `AND ${clauses.join(" AND ")}` : "";
 
     const [rows] = await pool.query<any[]>(
       `SELECT p.*, COALESCE(v.name, 'Unspecified') as vendor_name, co.name as company_name, co.code as company_code,
@@ -37,14 +61,14 @@ vendorPaymentsRouter.get(
        LEFT JOIN vendors v ON v.id = p.vendor_id
        JOIN companies co ON co.id = p.company_id
        LEFT JOIN expenses e ON e.id = p.expense_id
-       WHERE 1=1 ${searchClause}
+       WHERE 1=1 ${whereClause}
        ORDER BY p.created_at DESC
        LIMIT ? OFFSET ?`,
-      [...searchParams, perPage, offset]
+      [...filterParams, perPage, offset]
     );
     const [countRows] = await pool.query<any[]>(
-      `SELECT COUNT(*) as total FROM vendor_payments p LEFT JOIN vendors v ON v.id = p.vendor_id WHERE 1=1 ${searchClause}`,
-      searchParams
+      `SELECT COUNT(*) as total FROM vendor_payments p LEFT JOIN vendors v ON v.id = p.vendor_id WHERE 1=1 ${whereClause}`,
+      filterParams
     );
 
     res.json({ data: rows, meta: { page, perPage, total: countRows[0].total as number } });

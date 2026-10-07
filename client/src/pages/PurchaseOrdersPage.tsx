@@ -14,14 +14,16 @@ import {
   Popconfirm,
   Typography,
   Tag,
+  Popover,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined } from "@ant-design/icons";
-import dayjs from "dayjs";
+import { CalendarOutlined, PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined } from "@ant-design/icons";
+import dayjs, { Dayjs } from "dayjs";
 import { api } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { RemoteSelect } from "../components/RemoteSelect";
-import { Company, Item, PurchaseOrder, PurchaseOrderItem, PurchaseOrderStatus, Vendor } from "../types";
+import { GST_TYPE_OPTIONS } from "../constants/gst";
+import { Company, GstType, Item, PurchaseOrder, PurchaseOrderItem, PurchaseOrderStatus, Vendor } from "../types";
 
 const PAGE_SIZE = 10;
 
@@ -58,6 +60,11 @@ export function PurchaseOrdersPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
+  const [companyFilter, setCompanyFilter] = useState<number | undefined>();
+  const [gstFilter, setGstFilter] = useState<GstType | undefined>();
+  const [dateRange, setDateRange] = useState<[Dayjs, Dayjs] | null>(null);
+  const [draftDateRange, setDraftDateRange] = useState<[Dayjs, Dayjs] | null>(null);
+  const [dateFilterOpen, setDateFilterOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -69,6 +76,9 @@ export function PurchaseOrdersPage() {
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
   const lineItems = Form.useWatch("items", form) as LineFormValue[] | undefined;
+  const gstTypeWatch = Form.useWatch("gst_type", form) as GstType | undefined;
+  // "Without GST" orders charge no tax: the tax column is locked at 0.
+  const nonGst = gstTypeWatch === "non_gst";
 
   const canCreate = can("purchases.orders", "create");
   const canEdit = can("purchases.orders", "edit");
@@ -78,9 +88,14 @@ export function PurchaseOrdersPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get<{ data: PurchaseOrder[]; meta: { total: number } }>(
-        `/purchase-orders?page=${page}&perPage=${PAGE_SIZE}&search=${encodeURIComponent(search)}`
-      );
+      const params = new URLSearchParams({ page: String(page), perPage: String(PAGE_SIZE), search });
+      if (companyFilter) params.set("company_id", String(companyFilter));
+      if (gstFilter) params.set("gst_type", gstFilter);
+      if (dateRange) {
+        params.set("start_date", dateRange[0].format("YYYY-MM-DD"));
+        params.set("end_date", dateRange[1].format("YYYY-MM-DD"));
+      }
+      const res = await api.get<{ data: PurchaseOrder[]; meta: { total: number } }>(`/purchase-orders?${params.toString()}`);
       setOrders(res.data);
       setTotal(res.meta.total);
     } catch (err) {
@@ -88,7 +103,7 @@ export function PurchaseOrdersPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, search]);
+  }, [page, search, companyFilter, gstFilter, dateRange]);
 
   useEffect(() => {
     load();
@@ -123,7 +138,7 @@ export function PurchaseOrdersPage() {
     (lineItems || []).forEach((line) => {
       const qty = Number(line?.qty) || 0;
       const rate = Number(line?.rate) || 0;
-      const taxRate = Number(line?.tax_rate) || 0;
+      const taxRate = nonGst ? 0 : Number(line?.tax_rate) || 0;
       const taxable = round2(qty * rate);
       subtotal += taxable;
       tax += round2((taxable * taxRate) / 100);
@@ -131,13 +146,14 @@ export function PurchaseOrdersPage() {
     subtotal = round2(subtotal);
     tax = round2(tax);
     return { subtotal, tax, total: round2(subtotal + tax) };
-  }, [lineItems]);
+  }, [lineItems, nonGst]);
 
   function openCreate() {
     setEditing(null);
     form.resetFields();
     form.setFieldsValue({
       po_date: dayjs(),
+      gst_type: gstFilter ?? "gst",
       company_id: companies[0]?.id,
       status: "draft",
       items: [{ item_id: null, description: "", hsn_code: "", qty: 1, unit: "pcs", rate: 0, tax_rate: 18 }],
@@ -152,6 +168,7 @@ export function PurchaseOrdersPage() {
       setEditing(res.order);
       form.setFieldsValue({
         company_id: res.order.company_id,
+        gst_type: res.order.gst_type || "gst",
         vendor_id: res.order.vendor_id,
         po_date: dayjs(res.order.po_date),
         expected_date: res.order.expected_date ? dayjs(res.order.expected_date) : undefined,
@@ -241,6 +258,13 @@ export function PurchaseOrdersPage() {
   const columns: ColumnsType<PurchaseOrder> = [
     { title: "No.", dataIndex: "po_no", key: "po_no" },
     { title: "Company", dataIndex: "company_code", key: "company_code", width: 90 },
+    {
+      title: "GST",
+      dataIndex: "gst_type",
+      key: "gst_type",
+      width: 110,
+      render: (v: GstType | undefined) => (v === "non_gst" ? <Tag color="orange">Without GST</Tag> : <Tag color="green">With GST</Tag>),
+    },
     { title: "Vendor", dataIndex: "vendor_name", key: "vendor_name" },
     { title: "PO Date", dataIndex: "po_date", key: "po_date", render: (d: string) => dayjs(d).format("DD MMM YYYY") },
     {
@@ -300,7 +324,76 @@ export function PurchaseOrdersPage() {
         <Typography.Title level={4} style={{ margin: 0 }}>
           Purchase Orders
         </Typography.Title>
-        <Space>
+        <Space wrap>
+          <Popover
+            trigger="click"
+            open={dateFilterOpen}
+            onOpenChange={(open) => {
+              setDateFilterOpen(open);
+              if (open) setDraftDateRange(dateRange);
+            }}
+            content={
+              <Space direction="vertical">
+                <DatePicker.RangePicker
+                  value={draftDateRange}
+                  format="DD MMM YYYY"
+                  onChange={(value) => setDraftDateRange(value?.[0] && value[1] ? [value[0], value[1]] : null)}
+                  allowClear
+                />
+                <Space style={{ justifyContent: "flex-end", width: "100%" }}>
+                  <Button
+                    onClick={() => {
+                      setDateRange(null);
+                      setDraftDateRange(null);
+                      setPage(1);
+                      setDateFilterOpen(false);
+                    }}
+                  >
+                    Clear
+                  </Button>
+                  <Button
+                    type="primary"
+                    disabled={!draftDateRange}
+                    onClick={() => {
+                      setDateRange(draftDateRange);
+                      setPage(1);
+                      setDateFilterOpen(false);
+                    }}
+                  >
+                    Apply
+                  </Button>
+                </Space>
+              </Space>
+            }
+          >
+            <Button type={dateRange ? "primary" : "default"} icon={<CalendarOutlined />}>
+              {dateRange
+                ? `${dateRange[0].format("DD MMM YYYY")} - ${dateRange[1].format("DD MMM YYYY")}`
+                : "Date filter"}
+            </Button>
+          </Popover>
+          <Select
+            placeholder="All Companies"
+            allowClear
+            value={companyFilter}
+            options={companies.map((c) => ({ value: c.id, label: c.name }))}
+            onChange={(value) => {
+              setPage(1);
+              setCompanyFilter(value);
+            }}
+            style={{ width: 180 }}
+          />
+          <Select
+            placeholder="With / Without GST"
+            allowClear
+            value={gstFilter}
+            options={GST_TYPE_OPTIONS}
+            onChange={(value) => {
+              setPage(1);
+              setGstFilter(value);
+            }}
+            style={{ width: 170 }}
+          />
           <Input.Search
             placeholder="Search number or vendor"
             allowClear
@@ -343,7 +436,7 @@ export function PurchaseOrdersPage() {
               name="company_id"
               label="Company"
               rules={[{ required: true, message: "Company is required" }]}
-              style={{ width: "34%", marginBottom: 0 }}
+              style={{ width: "28%", marginBottom: 0 }}
             >
               <Select
                 placeholder="Select company"
@@ -351,11 +444,20 @@ export function PurchaseOrdersPage() {
                 options={companies.map((c) => ({ value: c.id, label: c.name }))}
               />
             </Form.Item>
+            <Form.Item name="gst_type" label="GST" style={{ width: "16%", marginBottom: 0 }}>
+              <Select
+                options={GST_TYPE_OPTIONS}
+                onChange={(v: GstType) => {
+                  if (v !== "non_gst") return;
+                  form.setFieldsValue({ items: (form.getFieldValue("items") || []).map((it: LineFormValue) => ({ ...it, tax_rate: 0 })) });
+                }}
+              />
+            </Form.Item>
             <Form.Item
               name="vendor_id"
               label="Vendor"
               rules={[{ required: true, message: "Vendor is required" }]}
-              style={{ width: "36%", marginBottom: 0 }}
+              style={{ width: "30%", marginBottom: 0 }}
             >
               <RemoteSelect<Vendor>
                 searchPath="/vendors"
@@ -365,7 +467,7 @@ export function PurchaseOrdersPage() {
                 style={{ width: "100%" }}
               />
             </Form.Item>
-            <Form.Item name="status" label="Status" style={{ width: "30%", marginBottom: 0 }}>
+            <Form.Item name="status" label="Status" style={{ width: "26%", marginBottom: 0 }}>
               <Select
                 style={{ width: "100%" }}
                 options={(Object.keys(STATUS_LABELS) as PurchaseOrderStatus[]).map((s) => ({ value: s, label: STATUS_LABELS[s] }))}
@@ -414,7 +516,7 @@ export function PurchaseOrdersPage() {
                         let lineTotal = 0;
                         if (line) {
                           const taxable = round2((Number(line.qty) || 0) * (Number(line.rate) || 0));
-                          const tax = round2((taxable * (Number(line.tax_rate) || 0)) / 100);
+                          const tax = nonGst ? 0 : round2((taxable * (Number(line.tax_rate) || 0)) / 100);
                           lineTotal = round2(taxable + tax);
                         }
                         return (
@@ -457,7 +559,7 @@ export function PurchaseOrdersPage() {
                             </td>
                             <td>
                               <Form.Item name={[name, "tax_rate"]} style={{ marginBottom: 0 }}>
-                                <InputNumber size="small" min={0} max={100} style={{ width: "100%" }} />
+                                <InputNumber size="small" min={0} max={100} style={{ width: "100%" }} disabled={nonGst} />
                               </Form.Item>
                             </td>
                             <td style={{ whiteSpace: "nowrap" }}>{lineTotal.toFixed(2)}</td>
