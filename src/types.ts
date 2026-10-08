@@ -479,6 +479,7 @@ export interface PurchaseOrder {
   company_id: number;
   vendor_id: number;
   status: PurchaseOrderStatus;
+  gst_type?: GstType;
   po_date: string;
   expected_date: string | null;
   reference_no: string | null;

@@ -1551,6 +1551,7 @@ ALTER TABLE receipts ADD COLUMN IF NOT EXISTS gst_type ENUM('gst', 'non_gst') NO
 ALTER TABLE credit_notes ADD COLUMN IF NOT EXISTS gst_type ENUM('gst', 'non_gst') NOT NULL DEFAULT 'gst';
 ALTER TABLE debit_notes ADD COLUMN IF NOT EXISTS gst_type ENUM('gst', 'non_gst') NOT NULL DEFAULT 'gst';
 ALTER TABLE purchase_bills ADD COLUMN IF NOT EXISTS gst_type ENUM('gst', 'non_gst') NOT NULL DEFAULT 'gst';
+ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS gst_type ENUM('gst', 'non_gst') NOT NULL DEFAULT 'gst';
 ALTER TABLE expenses ADD COLUMN IF NOT EXISTS gst_type ENUM('gst', 'non_gst') NOT NULL DEFAULT 'gst';
 ALTER TABLE vendor_payments ADD COLUMN IF NOT EXISTS gst_type ENUM('gst', 'non_gst') NOT NULL DEFAULT 'gst';
 ALTER TABLE journals ADD COLUMN IF NOT EXISTS gst_type ENUM('gst', 'non_gst') NOT NULL DEFAULT 'gst';

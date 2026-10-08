@@ -15,10 +15,11 @@ import {
   Typography,
   Tag,
   Alert,
+  Popover,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
-import dayjs from "dayjs";
+import { CalendarOutlined, PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
+import dayjs, { Dayjs } from "dayjs";
 import { api } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { RemoteSelect } from "../components/RemoteSelect";
@@ -73,6 +74,11 @@ export function PurchaseBillsPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
+  const [companyFilter, setCompanyFilter] = useState<number | undefined>();
+  const [gstFilter, setGstFilter] = useState<GstType | undefined>();
+  const [dateRange, setDateRange] = useState<[Dayjs, Dayjs] | null>(null);
+  const [draftDateRange, setDraftDateRange] = useState<[Dayjs, Dayjs] | null>(null);
+  const [dateFilterOpen, setDateFilterOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -103,9 +109,14 @@ export function PurchaseBillsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get<{ data: PurchaseBill[]; meta: { total: number } }>(
-        `/purchase-bills?page=${page}&perPage=${PAGE_SIZE}&search=${encodeURIComponent(search)}`
-      );
+      const params = new URLSearchParams({ page: String(page), perPage: String(PAGE_SIZE), search });
+      if (companyFilter) params.set("company_id", String(companyFilter));
+      if (gstFilter) params.set("gst_type", gstFilter);
+      if (dateRange) {
+        params.set("start_date", dateRange[0].format("YYYY-MM-DD"));
+        params.set("end_date", dateRange[1].format("YYYY-MM-DD"));
+      }
+      const res = await api.get<{ data: PurchaseBill[]; meta: { total: number } }>(`/purchase-bills?${params.toString()}`);
       setBills(res.data);
       setTotal(res.meta.total);
     } catch (err) {
@@ -113,7 +124,7 @@ export function PurchaseBillsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, search]);
+  }, [page, search, companyFilter, gstFilter, dateRange]);
 
   useEffect(() => {
     load();
@@ -167,7 +178,7 @@ export function PurchaseBillsPage() {
     form.resetFields();
     form.setFieldsValue({
       bill_date: dayjs(),
-      gst_type: "gst",
+      gst_type: gstFilter ?? "gst",
       company_id: companies[0]?.id,
       status: "draft",
       items: [{ item_id: null, description: "", hsn_code: "", qty: 1, unit: "pcs", rate: 0, tax_rate: 18 }],
@@ -182,7 +193,7 @@ export function PurchaseBillsPage() {
     form.resetFields();
     form.setFieldsValue({
       company_id: order.company_id,
-      gst_type: "gst",
+      gst_type: order.gst_type || "gst",
       vendor_id: order.vendor_id,
       bill_date: dayjs(),
       reference_no: order.reference_no,
@@ -363,7 +374,76 @@ export function PurchaseBillsPage() {
         <Typography.Title level={4} style={{ margin: 0 }}>
           Purchase Bills
         </Typography.Title>
-        <Space>
+        <Space wrap>
+          <Popover
+            trigger="click"
+            open={dateFilterOpen}
+            onOpenChange={(open) => {
+              setDateFilterOpen(open);
+              if (open) setDraftDateRange(dateRange);
+            }}
+            content={
+              <Space direction="vertical">
+                <DatePicker.RangePicker
+                  value={draftDateRange}
+                  format="DD MMM YYYY"
+                  onChange={(value) => setDraftDateRange(value?.[0] && value[1] ? [value[0], value[1]] : null)}
+                  allowClear
+                />
+                <Space style={{ justifyContent: "flex-end", width: "100%" }}>
+                  <Button
+                    onClick={() => {
+                      setDateRange(null);
+                      setDraftDateRange(null);
+                      setPage(1);
+                      setDateFilterOpen(false);
+                    }}
+                  >
+                    Clear
+                  </Button>
+                  <Button
+                    type="primary"
+                    disabled={!draftDateRange}
+                    onClick={() => {
+                      setDateRange(draftDateRange);
+                      setPage(1);
+                      setDateFilterOpen(false);
+                    }}
+                  >
+                    Apply
+                  </Button>
+                </Space>
+              </Space>
+            }
+          >
+            <Button type={dateRange ? "primary" : "default"} icon={<CalendarOutlined />}>
+              {dateRange
+                ? `${dateRange[0].format("DD MMM YYYY")} - ${dateRange[1].format("DD MMM YYYY")}`
+                : "Date filter"}
+            </Button>
+          </Popover>
+          <Select
+            placeholder="All Companies"
+            allowClear
+            value={companyFilter}
+            options={companies.map((c) => ({ value: c.id, label: c.name }))}
+            onChange={(value) => {
+              setPage(1);
+              setCompanyFilter(value);
+            }}
+            style={{ width: 180 }}
+          />
+          <Select
+            placeholder="With / Without GST"
+            allowClear
+            value={gstFilter}
+            options={GST_TYPE_OPTIONS}
+            onChange={(value) => {
+              setPage(1);
+              setGstFilter(value);
+            }}
+            style={{ width: 170 }}
+          />
           <Input.Search
             placeholder="Search number or vendor"
             allowClear
