@@ -240,7 +240,7 @@ purchaseBillsRouter.get(
        JOIN companies co ON co.id = b.company_id
        LEFT JOIN purchase_orders po ON po.id = b.purchase_order_id
        WHERE 1=1 ${whereClause}
-       ORDER BY b.created_at DESC
+       ORDER BY b.financial_year DESC, b.id DESC
        LIMIT ? OFFSET ?`,
       [...filterParams, perPage, offset]
     );
@@ -327,7 +327,10 @@ purchaseBillsRouter.post(
       taxAmount = Math.round(taxAmount * 100) / 100;
       const totalAmount = Math.round((subtotal + taxAmount) * 100) / 100;
 
-      const { docNumber, financialYear } = await getNextDocNumber("purchase_bill", company.code, new Date(bill_date), gstType);
+      // Number off today's financial year, not bill_date's: a supplier bill
+      // dated in an earlier year would otherwise land in that year's counter
+      // (e.g. "PB/JI/25-26/0001") and scramble the series.
+      const { docNumber, financialYear } = await getNextDocNumber("purchase_bill", company.code, new Date(), gstType);
 
       const [insertResult] = await conn.query<any>(
         `INSERT INTO purchase_bills
